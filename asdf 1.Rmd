@@ -1,0 +1,539 @@
+---
+title: "Predicting House Prices"
+output: html_notebook
+---
+
+I have obtained this dataset from [Kaggle](https://www.kaggle.com/harlfoxem/housesalesprediction) and it contains house sale prices for King County, which includes Seattle. It includes homes sold between May 2014 and May 2015.
+
+I have tried to predict the house price by using Regression,Random Forest and Gradient Boosting. I made this notebook when I finished reading these topics thereotically and wanted to apply them on a dataset!
+
+The flow of the notebook is as follows:                            
+1.Feature Engineering 
+2.Data Exploration  
+3.Linear Regression and Multinomial Regression                       
+4.Random Forest                               
+5.Gradient Boost                     
+6.Evaluation                   
+
+```{r}
+#loading needed libraries
+library(tidyverse)
+library(scales)
+library(RColorBrewer)
+library(broom)
+library(modelr)
+library(glmnet)
+library(ggpubr)
+options(scipen=999)
+
+```
+
+
+```{r}
+###loading data
+data <- read.csv("kc_house_data.csv")
+
+```
+
+
+```{r echo=TRUE}
+
+###checking the dimensions
+dim(data)
+###lets have a look at the data
+str(data)
+#apart from date everything else is numeric. let's keep it as it is for now
+###lets check for missing values
+colSums(is.na(data))
+#their is not a single row without any missing data! that saved lot of time here!!
+```
+Lets see the distribution of price
+```{r}
+data %>%
+  ggplot(aes(x = bathrooms)) +
+    geom_histogram() + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'price', 
+       y = 'Frequency', 
+       title = 'Distribution of price') + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma) 
+```
+
+
+
+Lets see how is price of house varying with some important features
+```{r echo=TRUE}
+p1<-data %>%
+  group_by(bathrooms) %>%
+  summarise(PriceMedian = median(price, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(bathrooms = reorder(bathrooms,PriceMedian)) %>%
+  arrange(desc(PriceMedian)) %>%  head(10) %>%
+  ggplot(aes(x = bathrooms,y = PriceMedian)) +
+  geom_bar(stat='identity') + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'bathrooms', 
+       y = 'Median Price', 
+       title = 'bathrooms and Median Price') +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma) +   geom_text(aes(x = bathrooms, y = 1, label = paste0("(",PriceMedian,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold')
+
+```
+Median price is clearly varying by number of bathrooms
+
+```{r}
+p2<-data %>%
+  group_by(bedrooms) %>%
+  summarise(PriceMedian = median(price, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(bedrooms = reorder(bedrooms,PriceMedian)) %>%
+  ggplot(aes(x = bedrooms,y = PriceMedian)) +
+  geom_bar(stat='identity') + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'bathrooms', 
+       y = 'Median Price', 
+       title = 'bathrooms and Median Price') +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma) +   geom_text(aes(x = bedrooms, y = 1, label = paste0("(",PriceMedian,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold')
+```
+
+```{r}
+p3<-data %>%
+  group_by(floors) %>%
+  summarise(PriceMedian = median(price, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(floors = reorder(floors,PriceMedian)) %>%
+  arrange(desc(PriceMedian)) %>%  head(10) %>%
+  ggplot(aes(x = floors,y = PriceMedian)) +
+  geom_bar(stat='identity') + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'Number of floors', 
+       y = 'Median Price', 
+       title = 'Floors and Median Price') +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma) + geom_text(aes(x = floors, y = 1, label = paste0("(",PriceMedian,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold')
+```
+```{r}
+p4<-data %>%
+  group_by(grade) %>%
+  summarise(PriceMedian = median(price, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(grade = reorder(grade,PriceMedian)) %>%
+  ggplot(aes(x = grade,y = PriceMedian)) +
+  geom_bar(stat='identity') + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'Grade', 
+       y = 'Median Price', 
+       title = 'Grade and Median Price') +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma) +   geom_text(aes(x = grade, y = 1, label = paste0("(",PriceMedian,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold')
+```
+
+```{r}
+p5<-data %>%
+  group_by(condition) %>%
+  summarise(PriceMedian = median(price, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(condition = reorder(condition,PriceMedian)) %>%
+  arrange(desc(PriceMedian)) %>%  head(10) %>%
+  ggplot(aes(x = condition,y = PriceMedian)) +
+  geom_bar(stat='identity') + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'Condition', 
+       y = 'Median Price', 
+       title = 'condition and Median Price') +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma) + geom_text(aes(x = condition, y = 1, label = paste0("(",PriceMedian,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold')
+
+p6<-data %>%
+  group_by(view) %>%
+  summarise(PriceMedian = median(price, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(view = reorder(view,PriceMedian)) %>%
+  arrange(desc(PriceMedian)) %>%  head(10) %>%
+  ggplot(aes(x = view,y = PriceMedian)) +
+  geom_bar(stat='identity') + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'View', 
+       y = 'Median Price', 
+       title = 'View and Median Price') +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma) + geom_text(aes(x = view, y = 1, label = paste0("(",PriceMedian,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold')
+
+data %>%
+  ggplot(aes(x = sqft_living,y = price)) +
+  geom_point() + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'Sqft Living', 
+       y = ' Price'
+       ) +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma) 
+          
+
+data %>%
+  ggplot(aes(x = sqft_lot,y = price)) +
+  geom_point() + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'Sqft lot', 
+       y = ' Price') +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma)
+
+data %>%
+  ggplot(aes(x = sqft_living15,y = price)) +
+  geom_point() + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'Sqft Living15', 
+       y = 'Median') +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma) 
+          
+
+data %>%
+  ggplot(aes(x = sqft_lot15,y = price)) +
+  geom_point() + scale_fill_brewer(palette = "Set2") +
+  labs(x = 'Sqft lot15', 
+       y = ' Price') +
+  coord_flip() + scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma)
+
+
+
+
+```
+We see that relationship of sqft_living and sqft_living15 is highly linear with Price 
+
+```{r}
+ggarrange(p1, p2)
+ggarrange(p3, p4)
+ggarrange(p5, p6)
+
+```
+
+```{r}
+corr<- data[,c(-1,-2,-17)]
+cor_numVar <- cor(corr, use="pairwise.complete.obs") #correlations of all numeric variables
+library(corrplot)
+
+corrplot.mixed(cor_numVar, tl.col="black", tl.pos = "lt")
+```
+
+Highest correlation of price is seen with sqft_living,grade and sqft_above!!
+Lets build a linear regression model to see how much varience does this single variable alone explain!
+
+```{r}
+#dividing the data into train and test set before modelling
+
+set.seed(123)
+sample <- sample(c(TRUE, FALSE), nrow(data), replace = T, prob = c(0.7,0.3))
+train <- data[sample, ]
+test <- data[!sample, ]
+
+
+#building linear regression model
+model1 <- lm(price ~ sqft_living, data = train)
+summary(model1)
+```
+
+Linear regression model on this single variable (sqft_living) alone explains almost 49% of variance in the data!
+Lets a have look at the diagonistics of this model
+```{r}
+library(broom)
+library(modelr)
+model1_results <- augment(model1, train)
+
+p1 <- ggplot(model1_results, aes(.fitted, .std.resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  ggtitle("Standardized Residuals vs Fitted")
+
+p2 <- ggplot(model1_results, aes(.fitted, sqrt(.std.resid))) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  ggtitle("Scale-Location")
+
+gridExtra::grid.arrange(p1, p2, nrow = 1)
+
+qq_plot <- qqnorm(model1_results$.resid)
+qq_plot <- qqline(model1_results$.resid)
+
+
+par(mfrow=c(1, 2))
+
+plot(model1, which = 4, id.n = 5)
+plot(model1, which = 5, id.n = 5)
+
+model1_results %>%
+  top_n(5, wt = .cooksd)
+
+```
+
+We see fan shaped residual curve, which is a sign of heteroskedasity! And even if this model would have high R-square, this would not 
+
+have been a perfect model and we would have to address heteroskedasity! We will try to do this by removing outliers and adding other variables to the model!
+```{r}
+data<- data[c(-1316,-1449,-3915,-4412,-7253),]
+```
+
+Lets build a multinomial regression model, before this, lets decide which variables to keep in factors and which to keep in ordered and numeric!
+
+
+```{r}
+data$bedrooms<-factor(data$bedrooms,ordered=TRUE)
+ggplot(data,aes(x=bedrooms,y=price,fill=bedrooms)) + geom_boxplot() + 
+  scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma)
+#Bedrooms does not show a linear relationship with price, hence they should be kept as factor and hence a dummy variable will be created in linear regression for the same
+
+#number of houses with more than 10 houses is very less. lets check how many?
+data %>% filter(bedrooms>10)
+#only two houses with more than 10 bedrooms
+
+#lets remove those two houses
+data = data[data$bedrooms <= 10, ]
+
+```
+
+```{r}
+#lets check for bathrooms
+
+data$bathrooms<-factor(data$bathrooms,ordered=TRUE)
+
+ggplot(data,aes(x=bathrooms,y=price,fill=bathrooms)) + geom_boxplot() + 
+  scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma)
+
+#Looks somewhat close to linear
+
+#Hence changing this variable to numeric so that it only has one coefficient in the linear regression equation
+
+data$bathrooms<-as.numeric(data$bathrooms,ordered=TRUE)
+
+```
+
+For sqft_living
+```{r}
+data$floors<-factor(data$floors)
+ggplot(data,aes(x=floors,y=price,fill=floors)) + geom_boxplot() + 
+  scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma)
+#non linear relationship
+```
+
+```{r}
+data$view<-factor(data$view)
+ggplot(data,aes(x=view,y=price,fill=view)) + geom_boxplot() + 
+  scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma)
+#non linear relationship
+```
+
+
+```{r}
+data$condition<-factor(data$condition)
+ggplot(data,aes(x=condition,y=price,fill=condition)) + geom_boxplot() + 
+  scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma)
+#non linear relationship
+```
+
+
+```{r}
+data$grade<-factor(data$grade)
+ggplot(data,aes(x=grade,y=price,fill=grade)) + geom_boxplot() + 
+  scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma)
+#looks linear
+data$grade<-as.numeric(data$grade)
+
+```
+For year renovated and waterfront
+```{r}
+data %>% filter(yr_renovated == 0) %>% summarise(n=n())
+#Which means that 20,698 houses out of 21,613 were never renovated! hence this could be directly converted to a binary factor variable where 1 means it was renovated and zero means it was not
+data$yr_renovated<-ifelse(data$yr_renovated>0,1,0)
+data$yr_renovated = as.factor(data$yr_renovated)
+
+
+#same thing for waterfront
+data %>% filter(waterfront == 0) %>% summarise(n=n())
+#21,448 houes have no waterfront hence converting this to binary variable as well
+data$waterfront<-ifelse(data$waterfront>0,1,0)
+data$waterfront = as.factor(data$waterfront)
+
+
+#checking how many houses are without basement
+data %>% filter(sqft_basement == 0) %>% summarise(n=n())
+#13,126 houes have no basement hence converting this to binary variable as well
+data$sqft_basement<-ifelse(data$sqft_basement>0,1,0)
+data$sqft_basement = as.factor(data$sqft_basement)
+
+
+#checking how the prices vary with zipcode
+data$zipcode<-factor(data$zipcode)
+ggplot(data,aes(x=zipcode,y=price,fill=grade)) + geom_boxplot() + 
+  scale_y_continuous(breaks= seq(0, 10000000, by=1000000), labels = comma)
+#some zipcodes have high median price and hence this variable must be considered as a factor variable while making a multinomial linear regression model
+
+#introducing age of house as a new variable here
+data$date<- as.Date(data$date, "%Y%m%dT000000")
+data$age<- as.integer(format(data$date,"%Y")) -  data$yr_built
+
+
+#as lat-long had very less correlation with price and hence removing them directly along with id
+
+data<- data[,c(-1,-2,-15,-18,-19)]
+str(data)
+```
+As many of the variables are correlated, problem of multicollinearity will arise which goes against the assumption of linear regression.
+Hence checking this by VIF! And removing the variables who have VIF above 4 (standard practice)
+
+```{r}
+
+model = lm(formula = price ~ sqft_living + sqft_above,
+           data = train)
+library(car)
+vif(model)
+model = lm(formula = price ~ sqft_living + bathrooms,
+           data = data)
+
+vif(model)
+
+model = lm(formula = price ~ sqft_living + sqft_living15,
+           data = data)
+
+vif(model)
+
+model = lm(formula = price ~ sqft_living + grade,
+           data = data)
+vif(model)
+
+
+model = lm(formula = price ~ sqft_living + grade,
+           data = data)
+vif(model)
+
+#hence sqft_above should be removed
+
+data<- data[,-11]
+
+
+```
+
+
+
+Building multinomial linear regression model
+
+```{r}
+#splitting again into train and test
+
+set.seed(123)
+sample <- sample(c(TRUE, FALSE), nrow(data), replace = T, prob = c(0.7,0.3))
+train1 <- data[sample, ]
+test1 <- data[!sample, ]
+
+
+model2 = lm(formula = price ~  .-price,
+           data = train1)
+summary(model2)
+```
+
+We see that multiple R-squared has increased to 81.85%!
+Lets see diagonistic plots for this model
+
+```{r}
+
+model2_results <- augment(model2, train1)
+
+p11 <- ggplot(model2_results, aes(.fitted, .std.resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  ggtitle("Standardized Residuals vs Fitted")
+
+p12 <- ggplot(model2_results, aes(.fitted, sqrt(.std.resid))) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  ggtitle("Scale-Location")
+
+gridExtra::grid.arrange(p11, p12, nrow = 1)
+
+qq_plot <- qqnorm(model2_results$.resid)
+qq_plot <- qqline(model2_results$.resid)
+
+
+par(mfrow=c(1, 2))
+
+plot(model2, which = 4, id.n = 5)
+plot(model2, which = 5, id.n = 5)
+```
+
+Although R-square has increased and but the fan shaped plot hasn't completely become the way it ideally should have! The normal QQ plot also shows that the data has a different distribution from normal distribution at both the ends
+
+
+Lets try different prediction algorithms and see how they perform on our train data!
+
+```{r}
+#training a generalised linear model
+library(glmnet)
+library(caret)
+formula = price ~ .-price
+
+fitControl <- trainControl(method="cv",number = 5)
+
+glm_model = train(formula, data = train1,
+                         method = "glmnet",trControl = fitControl,metric="RMSE")
+
+glm_model
+```
+It has used elastic net regression with alpha=0.1 and lamda=495.66, R-square is still 81.5%
+
+Lets build Random Forest model!
+
+```{r}
+library(randomForest) 
+# for reproduciblity
+
+set.seed(123)
+sample <- sample(c(TRUE, FALSE), nrow(data), replace = T, prob = c(0.7,0.3))
+train <- data[sample, ]
+test <- data[!sample, ]
+# default RF model
+rf_model <- randomForest(
+  formula = price ~  bedrooms + bathrooms + floors + waterfront + view + condition +
+    + sqft_basement + yr_renovated  + sqft_living15 + sqft_living + grade+age,
+  data    = train,
+  mtry=6
+)
+rf_model
+
+plot(rf_model)
+
+varImpPlot(rf_model,type=2)
+
+
+
+
+```
+
+
+
+Evaluating models based on RMSE
+```{r}
+pred1 <- predict(model2, test1)
+
+caret::RMSE(pred1, test$price)
+
+pred2 <- predict(glm_model, test1)
+
+caret::RMSE(pred2, test$price)
+
+pred3 <- predict(rf_model, test)
+
+caret::RMSE(pred3, test$price)
+
+```
+
+
+RMSE values show that multiple linear regression model is best performing!
+
+
+
+
+
+
+
+
+
+
+
+
